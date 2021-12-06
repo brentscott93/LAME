@@ -1,0 +1,13 @@
+name: critical-speed
+title: critical-speed
+username:
+account: brentscott93
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5277573
+bundleId: 5336017
+url: https://brentscott93.shinyapps.io/critical-speed/
+when: 1638822944.10573
+lastSyncTime: 1638822944.10576
+asMultiple: FALSE
+asStatic: FALSE

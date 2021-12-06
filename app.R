@@ -15,29 +15,99 @@ hms_to_seconds <- function(hms){
 
 }
 
+check_time <- function(string){
+  if(nchar(string) <= 3){
+    showNotification("All times must be at least 3 digits and include a colon. Ex. 5:20", type = "error")
+    req(nchar(string)>3)
+  }
+  
+  if(nchar(string)<=5){
+    if(str_sub(string, -3, -3) != ":"){
+      showNotification("All times must be in HH:MM:SS or HH:SS", type = "error")
+      req(str_sub(string, -3, -3) == ":")
+    }
+    
+  } else if(nchar(string)<=8 & nchar(string) > 5){
+    if(str_sub(string, -3, -3) != ":"){
+      showNotification("All times must be in HH:MM:SS or HH:SS 2", type = "error")
+      req(str_sub(string, -3, -3) == ":")
+    } 
+    
+    if(str_sub(string, -6, -6) != ":"){
+      showNotification("All times must be in HH:MM:SS or HH:SS 3", type = "error")
+      req(str_sub(string, -6, -6) == ":")
+    }
+  } else if(nchar(string)>8){
+    showNotification("Stime string is too long. Must be HH:MM:SS maximum.", type = "error")
+    req(nchar(string)<=8)
+  }
+  
+  
+  if(str_detect(string, "[:alpha:]")){
+    showNotification("No letters allowed in time input.", type = "error")
+    req(!str_detect(string, "[:alpha:]"))
+    
+  }
+  
+  if(str_detect(string, "[!@#$%^&*()-+={};<>,.?\"\'_]")){
+    showNotification("Only special character allowed in time input is a ':'", type = "error")
+    req(!str_detect(string, "[!@#$%^&*()-+={};<>,.?\"\'_]"))
+  } 
+  
+}
+
+predict_time_seconds <- function(meters, d_prime, cs){
+  (meters - d_prime)/cs
+}
+
 ui <- fluidPage(
-    titlePanel("Critical Power App"),
+    titlePanel("Critical Speed App"),
     sidebarLayout(
         sidebarPanel(
+          tabsetPanel(id = "sidebar",
+            tabPanel("Input Data",
+                     br(),
             sliderInput("number_of_prs", 
                         "Select number of PRs to input:",
                         min = 2,
                         max = 10,
                         value = 2),
             uiOutput("pr_inputs"),
-            actionButton("enter", "Enter")
-        ),
-          mainPanel(
+            actionButton("enter", "Go")
+          ),
+          tabPanel("Sim Data",
+                   br(),
+            fluidRow(
+              column(6, 
+                     sliderInput("sim_cs", 
+                                 "Critical Speed (m/s)",
+                                 value = 4,
+                                 min = 0, 
+                                 max = 10,
+                                 step = 0.1)),
+              column(6,
+                     sliderInput("sim_d_prime", 
+                                 "D' (m)",
+                                 value = 200,
+                                 min = 0, 
+                                 max = 1000)
+                     )
+                   ),
+            actionButton("sim", "Go"),
+            )
+         )
+       ),
+        mainPanel(
               tabsetPanel(
                   tabPanel("Plot",
               plotOutput("lm_scatter_plot")
                   ),
-              tabPanel("Predictions",
+              tabPanel("Race Predictions",
                 tableOutput("prediction_table")
-                )
-             )
+          )
         )
-    )
+      )
+  )
 )
 
 # Define server logic required to draw a histogram
@@ -76,7 +146,7 @@ server <- function(input, output) {
          }
          req(all(d!=""))
          
-         is_only_numbers <- str_detect(d, "^[0-9]*$")
+         is_only_numbers <- str_detect(d, "[:digit:]")
          if(!all(is_only_numbers)) {
              showNotification("Only numbers in 'Distance' input")
          }
@@ -89,38 +159,6 @@ server <- function(input, output) {
          }
          req(all(t!=""))
          
-        check_time <- function(string){
-            if(nchar(string) <= 3){
-                showNotification("All times must be in HH:MM:SS or HH:SS 0")
-                req(nchar(string)>3)
-                
-            } else if(nchar(string)<=5){
-                 
-                 if(str_sub(string, -3, -3) != ":"){
-                    showNotification("All times must be in HH:MM:SS or HH:SS 1")
-                    req(str_sub(string, -3, -3) == ":")
-                 }
-                 
-             } else if(nchar(string)<=8 & nchar(string) > 5){
-                 if(str_sub(string, -3, -3) != ":"){
-                    showNotification("All times must be in HH:MM:SS or HH:SS 2")
-                    req(str_sub(string, -3, -3) == ":")
-                 } 
-                 
-                if(str_sub(string, -6, -6) != ":"){
-                   showNotification("All times must be in HH:MM:SS or HH:SS 3")
-                   req(str_sub(string, -6, -6) == ":")
-                }
-             } else if(str_detect(string, "^[a-zA-Z]*$") == TRUE){
-                 showNotification("All times must be in HH:MM:SS or HH:SS 4")
-                 req(str_detect(string, "^[a-zA-Z]*$") != TRUE)
-             } else if(str_detect(string, "^[!@#$%^&*(){};:',.<>]*$") == TRUE){
-                 showNotification("All times must be in HH:MM:SS or HH:SS 4")
-                 req(str_detect(string, "^[!@#$%^&*(){};:',.<>]*$") != TRUE)
-             } 
-            
-        }
-      #  browser()
          walk(t, check_time)
          
          t <- hms_to_seconds(t)
@@ -143,9 +181,17 @@ server <- function(input, output) {
               lm_predict = lm_predict)
          
  })
+     
+    sim_data <- eventReactive(input$sim,{
+      tibble(meters = 1:43000,
+             seconds = (meters - input$sim_d_prime)/input$sim_cs)
+    })
    
      output$lm_scatter_plot <- renderPlot({
-         req(user_data())
+       
+       if(input$sidebar == "Input Data"){
+       validate(need(input$time1, "Enter PR data to begin. Press 'Go' to calculate."))
+       
          
          user_data <- user_data()$data
          cs <- round(as.numeric(user_data()$lm_coefs[[2]]), 2)
@@ -161,7 +207,8 @@ server <- function(input, output) {
          #                         seconds = c(151, 1000))
          # cs <- 4.7
          # d_prime <- 280
-         ggplot()+
+       
+          ggplot()+
              geom_point(data = user_data, aes(seconds, meters), size = 4)+
              geom_ribbon(data = lm_predict, aes(x = x, ymin = lwr, ymax = upr), alpha = 0.3)+
              geom_line(data = lm_predict, aes(x = x, y = fit), linetype = "dashed")+
@@ -172,24 +219,45 @@ server <- function(input, output) {
                       vjust = 1,
                       label = paste0("y = ", cs, "x + ", d_prime, "\n",
                                      "CS = ", cs, " m/s", " (", mile_time, " min/mile)\n",
-                                     "D' = ", d_prime, " m"))+
+                                     "D' = ", d_prime, " m"),
+                      size = 5)+
              coord_cartesian(xlim = c(0, max(user_data$seconds)+10), 
                              ylim = c(0, max(user_data$meters)+10))+
              xlab("Seconds")+
              ylab("Meters")+
-             theme_cowplot()
+             theme_cowplot(font_size = 16)
+       } else {
          
+         ref <- tibble(meters = 1:43000,
+                seconds = (meters - 200)/4)
+         ggplot()+
+          geom_line(data = sim_data(), aes(x = seconds, y = meters), color = "firebrick", size = 1.25)+
+           geom_line(data = ref, aes(x = seconds, y = meters), color = "grey40", linetype = "dashed")+
+           annotate("text", 
+                    x = 0 , 
+                    y = Inf,
+                    hjust = 0,
+                    vjust = 1,
+                    label = paste0("Gray-dashed reference line: \n",
+                                   "CS = 4 m/s \n",
+                                   "D' = 200 m"),
+                    size = 5)+
+          xlab("Seconds")+
+          ylab("Meters")+
+          ggtitle("Simulation")+
+          theme_cowplot(font_size = 16)
+        
+        }
+          
      })
      
      output$prediction_table <- renderTable({
+       if(input$sidebar == "Input Data"){
+         validate(need(input$time1, "Enter PR data to begin. Press 'Go' to calculate."))
          req(user_data())
          cs <- round(as.numeric(user_data()$lm_coefs[[2]]), 2)
          d_prime <- round(as.numeric(user_data()$lm_coefs[[1]]), 2)
         
-     
-         predict_time_seconds <- function(meters, d_prime, cs){
-             (meters - d_prime)/cs
-         }
          
          meters <- c(800, 1000, 1500, 1609, 3000, 3200, 5000, 10000, 21097, 42195)
          
@@ -198,9 +266,16 @@ server <- function(input, output) {
          tibble(Meters = meters,
                 Time = as.character(lubridate::seconds_to_period(predictions)))
          
-          
+       } else {
+         meters <- c(800, 1000, 1500, 1609, 3000, 3200, 5000, 10000, 21097, 42195)
+         
+         predictions <- map_dbl(meters, ~round(predict_time_seconds(.x, input$sim_d_prime, input$sim_cs), 0))
+         
+         tibble(Meters = meters,
+                "Sim Time" = as.character(lubridate::seconds_to_period(predictions)))
+       }
      })
-     observe({print(user_data())})
+     observe({print(input$sidebar)})
 }
 
 # Run the application 
