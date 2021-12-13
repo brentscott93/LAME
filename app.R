@@ -1,31 +1,73 @@
-
-ui <- fluidPage(
-    titlePanel("Critical Speed App"),
-    sidebarLayout(
-        sidebarPanel(width = 5,
-          tabsetPanel(id = "sidebar",
-            tabPanel("Runner Data",
-                     rHandsontableOutput("runner_data_input")),
-            tabPanel("Race Data",
-                     rHandsontableOutput("race_data_input"))
-          )
-       ),
-        mainPanel(width = 7, 
-              tabsetPanel(
-                  tabPanel("Plot",
-              plotOutput("lm_scatter_plot")
-                  ),
+library(shiny)
+library(tidyverse)
+library(cowplot)
+library(rhandsontable)
+library(kin697u)
+ui <- navbarPage("KIN697U",
+       tabPanel("Critical Speed",
+        sidebarLayout(
+         sidebarPanel(width = 4,
+          h4("Data Input:"),
+          h6("Fully editable table"),
+          h6("Right click to add more rows"),
+          h6("Multiple athletes accepted in long format"),
+          rHandsontableOutput("runner_pr_input"),
+          br(),
+          actionButton("cs_enter", "Calculate")
+           ),
+          mainPanel(width = 8, 
+            tabsetPanel(
+             tabPanel("Plot",
+              plotOutput("cs_plot")
+                     ),
               tabPanel("Race Predictions",
-                tableOutput("prediction_table")
-          )
-        )
-      )
-  )
-)
+                tableOutput("cs_prediction_table")
+               )
+              )
+             )
+            )
+           ),
+          tabPanel("D' Balance",
+            sidebarLayout(
+             sidebarPanel(width = 5,
+              tabsetPanel(id = "sidebar",
+               tabPanel("Runner Data",
+                rHandsontableOutput("runner_data_input")),
+               tabPanel("Race Data",
+                rHandsontableOutput("race_data_input"))
+              )
+            ),
+            mainPanel(width = 7, 
+             tabsetPanel(
+               
+              tabPanel("Plot",
+               plotOutput("lm_scatter_plot")
+                ),
+              tabPanel("Race Predictions",
+               tableOutput("prediction_table")
+                )
+               )
+              )
+             )
+            )
+           )
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
+  
+  output$runner_pr_input <- renderRHandsontable({
+    tibble("Athlete" = rep("Athlete 1", 4),
+           "Distance (m)" = as.integer(c(1500, 3000, 5000, 10000)) ,
+           "Hours" = rep(0, 4),
+           "Minutes" = rep(0, 4),
+           "Seconds" = rep(0, 4)) %>% 
+      rhandsontable() %>% 
+      hot_col(col = "Hours", type = "dropdown", source = 0:9) %>% 
+      hot_col(col = "Minutes", type = "dropdown", source = 0:59) %>% 
+      hot_col(col = "Seconds", type = "dropdown", source = 0:59)
+  })
+  
   output$runner_data_input <- renderRHandsontable({
      tibble("Athlete" = rep("Athlete 1", 4),
                 "Distance (m)" = as.integer(c(1500, 3000, 5000, 10000)) ,
@@ -47,87 +89,42 @@ server <- function(input, output) {
     })
   
   
-  
-  
- athlete_names <- reactive( paste0("athlete", seq_len(input$number_of_athletes)) )
-  
- distance_names <- reactive( paste0("distance", seq_len(input$number_of_prs)) )
+    cs <- reactiveValues()
+    observeEvent(input$cs_enter, {
+      print("hi")
+      pr_data <- 
+        hot_to_r(input$runner_pr_input) %>% 
+        rename(athlete = "Athlete",
+               meters = "Distance (m)") %>% 
+        mutate(seconds = ((Hours*3600) + (Minutes*60) + Seconds))
     
- time_names <- reactive( paste0("time", seq_len(input$number_of_prs)) )
-
- output$pr_inputs <- renderUI({
-     l <- list(a = athlete_names(),
-               d = distance_names(), 
-               t = time_names(), 
-               n = seq_len(input$number_of_prs))
-     pmap(l,
-          function(a, d, t, n){
-            tabPanel(title = paste0("Athlete ", n),
-             fluidRow(
-               sliderInput(paste0(a, "number_of_prs"), 
-                           "Number of PRs",
-                           min = 2,
-                           max = 10,
-                           value = 2),
-              column(
-               width = 6,
-               textInput(
-                 paste0(a, "_", d), 
-                 paste0("Distance ", n ),
-                 placeholder = "meters")
-               ),
-             column(width = 6,
-                textInput(
-                paste0(a, "_", t), 
-                paste0("Time ", n),
-                placeholder = "HH:MM:SS")
-           )
-          )
-         )
-        }
-       )
- })
-     
-     user_data <- eventReactive(input$enter, {
-         d <- map_chr(distance_names(), ~input[[.x]] %||% "")
-         if(!all(d!="")){
-             showNotification("Distance input missing")
-         }
-         req(all(d!=""))
-         
-         is_only_numbers <- str_detect(d, "[:digit:]")
-         if(!all(is_only_numbers)) {
-             showNotification("Only numbers in 'Distance' input")
-         }
-         req(all(is_only_numbers))
-         
-         t <- map_chr(time_names(), ~input[[.x]] %||% "")
+       if(anyNA(pr_data)){
+          showNotification("Whoops. Missing values detected. All cells must contain a value.")
+          req(!anyNA(pr_data))
+       }
+      
+      if(any(pr_data == "")){
+        showNotification("Whoops. Missing values detected. All cells must contain a value.")
+        req(!any(pr_data == ""))
+      }
         
-         if(!all(t!="")){
-             showNotification("Time input missoing")
-         }
-         req(all(t!=""))
-         
-         walk(t, check_time)
-         
-         t <- hms_to_seconds(t)
-         df <- data.frame(meters = as.numeric(d),
-                          seconds = as.numeric(t))
-         
-         # df <- data.frame(meters = c(1000, 5000),
-         #                  seconds = c(151, 960))
-         lm_mod <- lm(meters ~ seconds, data = df)
-         coefs <- coef(lm_mod)
-         
-         lm_predict <- as.data.frame(
-                        predict(lm_mod, 
-                                newdata = data.frame(seconds = 0:21600),
-                                interval = "conf")) %>% 
-             mutate(x = 0:21600)
-         
-         list(data = df,
-              lm_coefs = coefs, 
-              lm_predict = lm_predict)
+      cs_data <-
+        pr_data %>% 
+        dplyr::select(athlete, meters, seconds) %>% 
+        group_by(athlete) %>% 
+        nest(pr_data = !athlete) %>% 
+        mutate(lm_mod = map(pr_data, ~lm(meters ~ seconds, data = .x)),
+               d_prime_meters = map_dbl(lm_mod, ~coef(.x)[[1]]),
+               critical_speed_meters_second =  map_dbl(lm_mod, ~coef(.x)[[2]]),
+               lm_predict = map(lm_mod, 
+                                ~as.data.frame(
+                                 predict(.x, 
+                                         newdata = data.frame(seconds = 0:21600),
+                                         interval = "conf")) %>% 
+                                  mutate(x = 0:21600)))
+          
+        cs$pr_data <- pr_data
+        cs$cs_data <- cs_data
          
  })
      
