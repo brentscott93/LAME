@@ -7,7 +7,14 @@ library(ggpubr)
 library(DT)
 library(kin697u)
 
-ui <- navbarPage("WOUTER",
+ui <- navbarPage("LAME",
+       tabPanel("Home",
+        column(3),
+        column(6, 
+         h1("LAME", style = "text-align: center; margin-top: 150px"),
+         br(),
+         h5("Lame Application for Maximizing Endurance",style = "text-align: center")),
+         ),
        tabPanel("Critical Speed",
         sidebarLayout(
          sidebarPanel(width = 4,
@@ -69,12 +76,13 @@ ui <- navbarPage("WOUTER",
              )
             ),
        tabPanel("Disclaimer",
+         column(3),
+         column(6,
          HTML("<h6>This is a random web application made by some random guy on the internet. 
-            You should verify all the calculation by looking through the source code.</h6>")
+            <a href='https://github.com/brentscott93/WOUTER'>
+            You should verify all the calculations by looking through the source code.</a></h6>")
+                )
        ),
-       tabPanel("Acknowldgements",
-                HTML("")
-       )
       )
            
 
