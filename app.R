@@ -6,7 +6,8 @@ library(RColorBrewer)
 library(ggpubr)
 library(DT)
 library(kin697u)
-ui <- navbarPage("KIN697U",
+
+ui <- navbarPage("WOUTER",
        tabPanel("Critical Speed",
         sidebarLayout(
          sidebarPanel(width = 4,
